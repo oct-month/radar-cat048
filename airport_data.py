@@ -31,7 +31,31 @@ class AutomaticObservationData:
 class SingleEndedData:
     """单端的自观数据"""
     def __init__(self) -> None:
-        pass
+        self.num = ''   # 端编号
+        self.RVR_1 = '' # 1分钟RVR平均
+        self.RVR_10 = ''    # 10分钟平均
+        self.MOR_1 = '' # 1分钟MOR平均
+        self.MOR_10 = ''    # 10分钟MOR平均
+        self.B1 = ''    # 背景亮度一分钟平均值
+        self.windS2 = ''    # 2分钟平均风速
+        self.windF2 = ''    # 2分钟平均风向
+        self.winS10 = ''    # 10分钟平均风速
+        self.windF10 = ''   # 10分钟平均风向
+        self.windS = ''     # 最大阵风风速
+        self.windF = ''     # 最大阵风风向
+        self.Qnh = ''       # 修正海压
+        self.Qfe = ''       # 场压
+        self.Temp = ''      # 温度
+        self.Hum = ''       # 相对湿度
+        self.Td = ''        # 露点温度
+        self.roadTemp = ''  # 道面温度
+        self.LowCBase = ''     # 低云层高度
+        self.MediaCBase = ''    # 中云层高度
+        self.HighCBase = ''     # 高云层高度
+        self.VV = ''        # 垂直能见度
+        self.WEA = ''       # 天气现象
+        self.Pi = ''        # 降水强度
+        self.PREC = ''      # 降水量
 
 
 def read_data() -> str:
