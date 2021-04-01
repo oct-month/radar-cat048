@@ -4,6 +4,8 @@ verify_ssl = true
 name = "custom"
 
 [packages]
+openpyxl = "*"
+defusedxml = "*"
 
 [dev-packages]
 mypy = "*"
