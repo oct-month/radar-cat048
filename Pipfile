@@ -9,7 +9,8 @@ defusedxml = "*"
 
 [dev-packages]
 mypy = "*"
-ipykernel = "*
+ipykernel = "*"
+autopep8 = "*"
 
 [requires]
 python_version = "3.8"

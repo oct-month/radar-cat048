@@ -1,0 +1,32 @@
+1 I048/010 Data Source Identifier 2
+2 I048/140 Time-of-Day 3
+3 I048/020 Target Report Descriptor 1+
+4 I048/040 Measured Position in Slant Polar Coordinates 4
+5 I048/070 Mode-3/A Code in Octal Representation 2
+6 I048/090 Flight Level in Binary Representation 2
+7 I048/130 Radar Plot Characteristics 1+1+
+FX n.a. Field Extension Indicator n.a.
+8 I048/220 Aircraft Address 3
+9 I048/240 Aircraft Identification 6
+10 I048/250 Mode S MB Data 1+8*n
+11 I048/161 Track Number 2
+12 I048/042 Calculated Position in Cartesian Coordinates 4
+13 I048/200 Calculated Track Velocity in Polar Representation 4
+14 I048/170 Track Status 1+
+FX n.a. Field Extension Indicator n.a.
+15 I048/210 Track Quality 4
+16 I048/030 Warning/Error Conditions 1+
+17 I048/080 Mode-3/A Code Confidence Indicator 2
+18 I048/100 Mode-C Code and Confidence Indicator 4
+19 I048/110 Height Measured by 3D Radar 2
+20 I048/120 Radial Doppler Speed 1+
+21 I048/230 Communications / ACAS Capability and Flight Status 2
+FX n.a. Field Extension Indicator n.a.
+22 I048/260 ACAS Resolution Advisory Report 7
+23 I048/55 Mode-1 Code in Octal Representation 1
+24 I048/50 Mode-2 Code in Octal Representation 2
+25 I048/65 Mode-1 Code Confidence Indicator 1
+26 I048/60 Mode-2 Code Confidence Indicator 2
+27 SP-Data Item Special Purpose Field 1+1+
+28 RE-Data Item Reserved Expansion Field 1+1+
+FX n.a. Field Extension Indicator n.a.
