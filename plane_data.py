@@ -1,23 +1,37 @@
 from typing import List, Tuple
-from datetime import datetime
+from datetime import datetime, time
 from openpyxl import load_workbook
 
-FILE_PATH = './DATASAMPLE.txt'
+FILE_PATH = './test.txt'
 CAT048UAP_PATH = './CAT048UAP.xlsx'
 
 
 def read_data(path: str) -> List[str]:
     """读取数据"""
     with open(path, 'r', encoding='UTF-8') as f:
-        return [line for line in f]
+        return [line.strip() for line in f]
 
 
-def __load_UAP() -> List['CAT048UAPItem']:
+def trans_stap_to_time(stap: float) -> time:
+    """将时间戳转换成time对象"""
+    hour, minute, second, microsec = 0, 0, 0, 0
+    hour = int(stap // 3600)
+    stap -= 3600 * hour
+    hour %= 24
+    minute = int(stap // 60)
+    stap -= 60 * minute
+    second = int(stap // 1)
+    stap -= 1 * second
+    microsec = int(stap * 1e6)
+    return time(hour=hour, minute=minute, second=second, microsecond=microsec)
+
+
+def load_UAP() -> List['CAT048UAPItem']:
     """从Excel中读取UAP表"""
     result = []
     work_book = load_workbook(CAT048UAP_PATH, read_only=True, data_only=True)
     sheet = work_book.active
-    for FRN, DataItem, DataItemDesc, Length in sheet.values[1:]:
+    for FRN, DataItem, DataItemDesc, Length in list(sheet.values)[1:]:
         result.append(CAT048UAPItem(FRN, DataItem, DataItemDesc, Length))
     return result
 
@@ -33,15 +47,15 @@ class CAT048UAPItem:
 
 class SecondaryRadar048:
     """二次雷达数据CAT048"""
-    CAT048UAP: List[CAT048UAPItem] = __load_UAP()         # 完整的UAP表
+    CAT048UAP: List[CAT048UAPItem] = load_UAP()         # 完整的UAP表
 
     def __init__(self, source: str) -> None:
         soc = source.split()
-        self.recv_time: datetime = self.__read_utc_time(soc[0])   # 接收到数据的时间
+        self.recv_time: datetime = self.__read_utc_str(soc[0])   # 接收到数据的时间
         self.__source: str = soc[1]
         self.__analysis()
 
-    def __read_utc_time(self, utc: str) -> datetime:
+    def __read_utc_str(self, utc: str) -> datetime:
         """解析时间"""
         day, month, year, hour, minute, second = 0, 0, 0, 0, 0, 0
         date_str, sec_str = utc.split(':')
@@ -65,17 +79,34 @@ class SecondaryRadar048:
         return int(soc, 16)
 
     def __read_bits_str(self, bits: int) -> str:
-        """从数据中读取bits个比特"""
+        """读取bits个比特，返回原始16进制串"""
         soc = self.__source[:bits*2]
         self.__source = self.__source[bits*2:]
         return soc
+    
+    def __read_bits_bin(self, bits: int) -> str:
+        """读取bits个比特，返回01串"""
+        length = bits * 8
+        soce = self.__read_bits(bits)
+        result = bin(soce)[2:]
+        return '0' * (length - len(result)) + result
 
     def __read_bits_FX(self, min: int = 1, step: int = 1) -> Tuple[int, int]:
         """
         依据FX位读取若干个比特
         至少读取min个
         一次步进step个比特
-        @return 读取的数据, 实际读取的比特数
+        :return 读取的数据，实际读取的比特数
+        """
+        soc, read_num = self.__read_bits_str_FX(min, step)
+        return int(soc, 16), read_num
+    
+    def __read_bits_str_FX(self, min: int = 1, step: int = 1) -> Tuple[str, int]:
+        """
+        依据FX位读取若干个比特
+        至少读取min个
+        一次步进step个
+        :return 读取的数据的16进制串，实际读取的比特数
         """
         read_num = 0
         result_list = []
@@ -85,29 +116,104 @@ class SecondaryRadar048:
             result_list.append(self.__read_bits_str(step))
             read_num += step
         soc = ''.join(result_list)
-        return int(soc, 16), read_num
+        return soc, read_num
+    
+    def __read_bits_bin_FX(self, min: int = 1, step: int = 1) -> Tuple[str, int]:
+        """
+        依据FX位读取若干个比特
+        至少读取min个
+        一次步进step个
+        :return 读取的数据的01串，实际读取的比特数
+        """
+        soce, num = self.__read_bits_FX(min, step)
+        length = num * 8
+        result = bin(soce)[2:]
+        return '0' * (length - len(result)) + result, num
 
     def __analysis(self) -> None:
         """分析数据"""
         self.HDLC_address = self.__read_bits(1)  # HDLC地址字段
         self.HDLC_control = self.__read_bits(1)  # HDLC控制字段
         self.CAT = self.__read_bits(1)          # CAT数据种类
+        if self.CAT != 48:
+            return
         self.LEN = self.__read_bits(2)          # 数据帧的总长度
-        self.FSPEC, _ = self.__read_bits_FX()   # UAP表的数据索引
-        self.__set_UAP_Item(bin(self.FSPEC)[2:])
+        self.FSPEC, _ = self.__read_bits_bin_FX()   # UAP表的数据索引
+        self.__set_UAP_Item()
     
-    def __set_UAP_Item(self, FSPEC: str) -> None:
+    def __set_UAP_Item(self) -> None:
         """根据FSPEC和UAP设置字段值"""
-        for i, flag in enumerate(FSPEC):
-            i += 1
-            if flag == '1':     # 当前UAP的值存在
-                pass
-            else:
-                pass
+        # Data SOurce Identifier: SAC SIC
+        if self.FSPEC[1-1] == '1':
+            self.SAC = self.__read_bits(1)      # 区域码
+            self.SIC = self.__read_bits(1)      # 雷达的编码
+        # Time-of-Day
+        if self.FSPEC[2-1] == '1':
+            stap = self.__read_bits(3) / 128
+            self.data_time = trans_stap_to_time(stap)  # 数据包产生的时间
+        # Target Report Descriptor
+        if self.FSPEC[3-1] == '1':
+            self.__read_bits_str_FX()
+        # Measured Position in Slant Polar Coordinates
+        if self.FSPEC[4-1] == '1':
+            self.polar_diameter = self.__read_bits(2) / 256 * 1852     # 极径m
+            self.polar_angle = self.__read_bits(2) * 360 / (1<<16)      # 极角°
+        # Mode-3/A Code in Octal Representation
+        if self.FSPEC[5-1] == '1':
+            self.__read_bits_str(2)
+        # Flight Level in Binary Representation
+        if self.FSPEC[6-1] == '1':
+            tap = self.__read_bits(2)
+            if tap < (1<<14):
+                self.FL = tap / 4      # 飞行高度层
+        # Radar Plot Characteristics
+        if self.FSPEC[7-1] == '1':
+            self.__read_bits_str_FX()
+            self.__read_bits_str_FX()
+        # Aircraft Address
+        if self.FSPEC[8+1-1] == '1':
+            self.ICAO = self.__read_bits_bin(3) # 飞机的ICAO码
+        # Aircraft Identification
+        if self.FSPEC[9+1-1] == '1':
+            self.__read_bits_str(6)
+        # Mode S MB Data
+        if self.FSPEC[10+1-1] == '1':
+            MB_len = self.__read_bits(1)
+            self.__read_bits_str(8 * MB_len)
+        # Track Number
+        if self.FSPEC[11+1-1] == '1':
+            self.track_number = self.__read_bits(2) # 航迹号
+        # Calculatede Position in Cartesian Coordinates
+        if self.FSPEC[12+1-1] == '1':
+            self.position_X = self.__read_bits(2) / 128 * 1852  # X坐标，单位m
+            self.position_Y = self.__read_bits(2) / 128 * 1852  # Y坐标，单位m
+        # Calculated Track Velocity in Polar Representation
+        if self.FSPEC[13+1-1] == '1':
+            self.polar_track_velocity = self.__read_bits(2) * 1852 * (2**-14)   # 极坐标的轨道速度
+            self.polar_track_heading = self.__read_bits(2) * 360 / (1<<16)      # 速度的方向
+        # Track Status
+        if self.FSPEC[14+1-1] == '1':
+            self.__read_bits_str_FX()
+        # Track QUality
+        if self.FSPEC[15+2-1] == '1':
+            self.__read_bits_str(4)
+        # Warning/Error Conditions
+        if self.FSPEC[16+2-1] == '1':
+            self.__read_bits_str_FX()
+        # Mode-3/A Code Confidence Indicator
+        if self.FSPEC[17+2-1] == '1':
+            self.__read_bits_str(2)
+        # Mode-C Code and Confidence Indicator
+        if self.FSPEC[18+2-1] == '1':
+            self.__read_bits_str(4)
+        # Height Measured by 3D Radar
+        if self.FSPEC[19+2-1] == '1':
+            self.D3_height = self.__read_bits(2) * 25 * 0.3 # 三维雷达测定的目标高度，使用平均海平面作为0基准面
+
 
 
 if __name__ == '__main__':
     for data in read_data(FILE_PATH):
         a = SecondaryRadar048(data)
-        if a.CAT == 48:
-            print(bin(a.FSPEC))
+
+# TODO 检查所有有扩展字段的值，它们可能不是FX规则
