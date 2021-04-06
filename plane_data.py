@@ -1,6 +1,6 @@
-from typing import List, Tuple
+from typing import Any, List, Tuple, Dict
 from datetime import datetime, time
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 
 FILE_PATH = './test.txt'
 CAT048UAP_PATH = './CAT048UAP.xlsx'
@@ -47,7 +47,7 @@ class CAT048UAPItem:
 
 class SecondaryRadar048:
     """二次雷达数据CAT048"""
-    CAT048UAP: List[CAT048UAPItem] = load_UAP()         # 完整的UAP表
+    # CAT048UAP: List[CAT048UAPItem] = load_UAP()         # 完整的UAP表
 
     def __init__(self, source: str) -> None:
         soc = source.split()
@@ -168,11 +168,17 @@ class SecondaryRadar048:
                 self.FL = tap / 4      # 飞行高度层
         # Radar Plot Characteristics
         if self.FSPEC[7-1] == '1':
-            self.__read_bits_str_FX()
-            self.__read_bits_str_FX()
+            rpc, _ = self.__read_bits_bin_FX()
+            for v in rpc:
+                if v == '1':
+                    self.__read_bits_str(1)
         # Aircraft Address
         if self.FSPEC[8+1-1] == '1':
             self.ICAO = self.__read_bits_bin(3) # 飞机的ICAO码
+        
+        if len(self.FSPEC) <= 8:
+            return
+
         # Aircraft Identification
         if self.FSPEC[9+1-1] == '1':
             self.__read_bits_str(6)
@@ -194,6 +200,10 @@ class SecondaryRadar048:
         # Track Status
         if self.FSPEC[14+1-1] == '1':
             self.__read_bits_str_FX()
+
+        if len(self.FSPEC) <= 16:
+            return
+
         # Track QUality
         if self.FSPEC[15+2-1] == '1':
             self.__read_bits_str(4)
@@ -207,13 +217,72 @@ class SecondaryRadar048:
         if self.FSPEC[18+2-1] == '1':
             self.__read_bits_str(4)
         # Height Measured by 3D Radar
-        if self.FSPEC[19+2-1] == '1':
-            self.D3_height = self.__read_bits(2) * 25 * 0.3 # 三维雷达测定的目标高度，使用平均海平面作为0基准面
+        # if self.FSPEC[19+2-1] == '1':
+        #     self.D3_height = self.__read_bits(2) * 25 * 0.3 # 三维雷达测定的目标高度，使用平均海平面作为0基准面
 
+    def dump_json(self) -> Dict[str, Any]:
+        """获取对象的数据"""
+        member = dir(self)
+        return {
+            "recv_time": self.recv_time if 'recv_time' in member else None,
+            "HDLC_address": self.HDLC_address if 'HDLC_address' in member else None,
+            "HDLC_control": self.HDLC_control if 'HDLC_control' in member else None,
+            "CAT": self.CAT if 'CAT' in member else None,
+            "LEN": self.LEN if 'LEN' in member else None,
+            "FSPEC": self.FSPEC if 'FSPEC' in member else None,
+            "SAC": self.SAC if 'SAC' in member else None,
+            "SIC": self.SIC if 'SIC' in member else None,
+            "Time-of-Day": self.data_time if 'data_time' in member else None,
+            "polar diameter": self.polar_diameter if 'polar_diameter' in member else None,
+            "polar angle": self.polar_angle if 'polar_angle' in member else None,
+            "FL": self.FL if 'FL' in member else None,
+            "ICAO": self.ICAO if 'ICAO' in member else None,
+            "track number": self.track_number if 'track_number' in member else None,
+            "position X": self.position_X if 'position_X' in member else None,
+            "position Y": self.position_Y if 'position_Y' in member else None,
+            "polar track velocity": self.polar_track_velocity if 'polar_track_velocity' in member else None,
+            "polar track heading": self.polar_track_heading if 'polar_track_heading' in member else None,
+            # "3D height": self.D3_height if 'D3_height' in member else None,
+        }
+    
+    @classmethod
+    def load_excel(cls, datas: List['SecondaryRadar048'], path: str) -> None:
+        """把结果写入文件"""
+        heads = [
+            "recv_time",
+            "HDLC_address",
+            "HDLC_control",
+            "CAT",
+            "LEN",
+            "FSPEC",
+            "SAC",
+            "SIC",
+            "Time-of-Day",
+            "polar diameter",
+            "polar angle",
+            "FL",
+            "ICAO",
+            "track number",
+            "position X",
+            "position Y",
+            "polar track velocity",
+            "polar track heading",
+            # "3D height",
+        ]
+        wb = Workbook()
+        ws = wb.active
+        for i, title in enumerate(heads):
+            ws.cell(row=1, column=i+1, value=title)
+        for i, data in enumerate(datas):
+            json_data = data.dump_json()
+            for j, title in enumerate(heads):
+                ws.cell(row=i+2, column=j+1, value=json_data[title])
+        wb.save(path)  
 
 
 if __name__ == '__main__':
+    data_list = []
     for data in read_data(FILE_PATH):
         a = SecondaryRadar048(data)
-
-# TODO 检查所有有扩展字段的值，它们可能不是FX规则
+        data_list.append(a)
+    SecondaryRadar048.load_excel(data_list, 'test2.xlsx')
