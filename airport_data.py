@@ -182,4 +182,4 @@ if __name__ == '__main__':
     for data in data_list:
         a = AutomaticObservationData.fromSource(data)
         su_list.append(a)
-    AutomaticObservationData.to_excel(su_list, 'test.xlsx')
+    AutomaticObservationData.to_excel(su_list, '自观测.xlsx')
