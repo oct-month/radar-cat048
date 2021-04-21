@@ -2,8 +2,8 @@ from typing import Any, List, Tuple, Dict
 from datetime import datetime, time
 from openpyxl import load_workbook, Workbook
 
-FILE_PATH = './test.txt'
-CAT048UAP_PATH = './CAT048UAP.xlsx'
+FILE_PATH = './DATASAMPLE.txt'
+# CAT048UAP_PATH = './CAT048UAP.xlsx'
 
 
 def read_data(path: str) -> List[str]:
@@ -177,7 +177,7 @@ class SecondaryRadar048(SecondaryRadar):
         if self.FSPEC[6-1] == '1':
             tap = self._read_bits(2)
             if tap < (1<<14):
-                self.FL = tap / 4      # 飞行高度层
+                self.FL = tap / 4 * 30.48      # 飞行高度 m
         # Radar Plot Characteristics
         if self.FSPEC[7-1] == '1':
             rpc, _ = self._read_bits_bin_FX()
@@ -186,7 +186,7 @@ class SecondaryRadar048(SecondaryRadar):
                     self._read_bits_str(1)
         # Aircraft Address
         if self.FSPEC[8+1-1] == '1':
-            self.ICAO = self._read_bits_bin(3) # 飞机的ICAO码
+            self.ICAO = self._read_bits(3)  # 飞机的ICAO码
         
         if len(self.FSPEC) <= 8:
             return
@@ -207,7 +207,7 @@ class SecondaryRadar048(SecondaryRadar):
             self.position_Y = self._read_bits(2) / 128 * 1852  # Y坐标，单位m
         # Calculated Track Velocity in Polar Representation
         if self.FSPEC[13+1-1] == '1':
-            self.polar_track_velocity = self._read_bits(2) * 1852 * (2**-14)   # 极坐标的轨道速度 m/s
+            self.polar_track_velocity = self._read_bits(2) * 1852 / (1<<14)   # 极坐标的轨道速度 m/s
             self.polar_track_heading = self._read_bits(2) * 360 / (1<<16)      # 速度的方向 °
         # Track Status
         if self.FSPEC[14+1-1] == '1':
@@ -262,11 +262,11 @@ class SecondaryRadar048(SecondaryRadar):
         """把结果写入文件"""
         heads = [
             "recv_time",
-            "HDLC_address",
-            "HDLC_control",
+            # "HDLC_address",
+            # "HDLC_control",
             "CAT",
-            "LEN",
-            "FSPEC",
+            # "LEN",
+            # "FSPEC",
             "SAC",
             "SIC",
             "Time-of-Day",
@@ -279,7 +279,6 @@ class SecondaryRadar048(SecondaryRadar):
             "position Y",
             "polar track velocity",
             "polar track heading",
-            # "3D height",
         ]
         wb = Workbook()
         ws = wb.active
@@ -397,16 +396,16 @@ class SecondaryRadar034(SecondaryRadar):
 
 if __name__ == '__main__':
     data_list_048 = []
-    data_list_034 = []
+    # data_list_034 = []
     for data in read_data(FILE_PATH):
         cat = SecondaryRadar.get_cat(data)
         if cat == 48:
             a = SecondaryRadar048(data)
             data_list_048.append(a)
-        elif cat == 34:
-            a = SecondaryRadar034(data)
-            data_list_034.append(a)
-        else:
-            print('??????')
-    SecondaryRadar034.load_excel(data_list_034, 'test034.xlsx')
+        # elif cat == 34:
+        #     a = SecondaryRadar034(data)
+        #     data_list_034.append(a)
+        # else:
+        #     print('??????')
+    # SecondaryRadar034.load_excel(data_list_034, 'test034.xlsx')
     SecondaryRadar048.load_excel(data_list_048, 'test048.xlsx')
