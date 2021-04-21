@@ -1,15 +1,18 @@
-from typing import Any, List, Tuple, Dict
+from typing import Any, Generator, List, Tuple, Dict
 from datetime import datetime, time
-from openpyxl import load_workbook, Workbook
+from openpyxl import Workbook
+import os
 
 FILE_PATH = './DATASAMPLE.txt'
+FILE_DIR_PATH = './radar_data'
 # CAT048UAP_PATH = './CAT048UAP.xlsx'
 
 
-def read_data(path: str) -> List[str]:
+def read_data(path: str) -> Generator[str, None, None]:
     """读取数据"""
     with open(path, 'r', encoding='UTF-8') as f:
-        return [line.strip() for line in f]
+        for line in f:
+            yield line.strip()
 
 
 def trans_stap_to_time(stap: float) -> time:
@@ -168,8 +171,8 @@ class SecondaryRadar048(SecondaryRadar):
             self._read_bits_str_FX()
         # Measured Position in Slant Polar Coordinates
         if self.FSPEC[4-1] == '1':
-            self.polar_diameter = self._read_bits(2) / 256 * 1852     # 极径m
-            self.polar_angle = self._read_bits(2) * 360 / (1<<16)      # 极角°
+            self.polar_diameter = self._read_bits(2) / 256 * 1852       # 极径m
+            self.polar_angle = self._read_bits(2) * 360 / (1<<16)       # 极角°
         # Mode-3/A Code in Octal Representation
         if self.FSPEC[5-1] == '1':
             self._read_bits_str(2)
@@ -184,16 +187,28 @@ class SecondaryRadar048(SecondaryRadar):
             for v in rpc:
                 if v == '1':
                     self._read_bits_str(1)
+
+        if len(self.FSPEC) <= 8:
+            return
+        
         # Aircraft Address
         if self.FSPEC[8+1-1] == '1':
             self.ICAO = self._read_bits(3)  # 飞机的ICAO码
-        
-        if len(self.FSPEC) <= 8:
-            return
 
         # Aircraft Identification
         if self.FSPEC[9+1-1] == '1':
-            self._read_bits_str(6)
+            self.flight_num = ''            # 航班号
+            temp = self._read_bits_bin(6)
+            index = 0
+            while index < len(temp):
+                c = int(temp[index:index+6], 2)
+                index += 6
+                if 1 <= c <= 26:
+                    self.flight_num += chr(ord('A') + c - 1)
+                elif 48 <= c <= 57:
+                    self.flight_num += chr(ord('0') + c - 48)
+                # else: # 意外情况c=32
+                #     self.flight_num += ' '
         # Mode S MB Data
         if self.FSPEC[10+1-1] == '1':
             MB_len = self._read_bits(1)
@@ -249,6 +264,7 @@ class SecondaryRadar048(SecondaryRadar):
             "polar angle": self.polar_angle if 'polar_angle' in member else None,
             "FL": self.FL if 'FL' in member else None,
             "ICAO": self.ICAO if 'ICAO' in member else None,
+            "flight_num": self.flight_num if 'flight_num' in member else None,
             "track number": self.track_number if 'track_number' in member else None,
             "position X": self.position_X if 'position_X' in member else None,
             "position Y": self.position_Y if 'position_Y' in member else None,
@@ -274,6 +290,7 @@ class SecondaryRadar048(SecondaryRadar):
             "polar angle",
             "FL",
             "ICAO",
+            "flight_num",
             "track number",
             "position X",
             "position Y",
@@ -394,18 +411,59 @@ class SecondaryRadar034(SecondaryRadar):
                 ws.cell(row=i+2, column=j+1, value=json_data[title])
         wb.save(path)  
 
+
+class PlaneTrackData:
+    """飞机的一条航迹数据"""
+    def __init__(self, ICAO: int, track_num: int) -> None:
+        self.plane_ICAO = ICAO              # 飞机的ICAO码
+        self.track_num = track_num          # 航迹号
+        self.track_data: List[SecondaryRadar048] = []   # 该航迹的所有数据
+    
+    def add_data(self, data: SecondaryRadar048) -> None:
+        """补充数据"""
+        self.track_data.append(data)
+    
+    def __sort(self) -> None:
+        self.track_data.sort(key=lambda x: x.data_time)
+    
+    def min_FL(self) -> float:
+        """飞机的最低飞行高度"""
+        return min([i.FL for i in self.track_data if hasattr(i, 'FL')])
+
+
 if __name__ == '__main__':
-    data_list_048 = []
-    # data_list_034 = []
-    for data in read_data(FILE_PATH):
-        cat = SecondaryRadar.get_cat(data)
-        if cat == 48:
-            a = SecondaryRadar048(data)
-            data_list_048.append(a)
-        # elif cat == 34:
-        #     a = SecondaryRadar034(data)
-        #     data_list_034.append(a)
-        # else:
-        #     print('??????')
-    # SecondaryRadar034.load_excel(data_list_034, 'test034.xlsx')
-    SecondaryRadar048.load_excel(data_list_048, 'test048.xlsx')
+    files = [os.path.join(FILE_DIR_PATH, i) for i in os.listdir(FILE_DIR_PATH)]
+    files.sort()
+
+    track_map: Dict[int, PlaneTrackData] = {}
+
+    # data_list_048: List[SecondaryRadar048] = []
+    data_tmp: List[SecondaryRadar048] = []
+    for file_path in files:
+        data_tmp.clear()
+        # 读取
+        for data in read_data(file_path):
+            cat = SecondaryRadar.get_cat(data)
+            if cat == 48:
+                a = SecondaryRadar048(data)
+                data_tmp.append(a)
+        # 归类
+        for data in data_tmp:
+            if hasattr(data, 'track_number') and hasattr(data, 'ICAO'):
+                plane_track_data = track_map.get(data.track_number, None)
+                if plane_track_data == None:
+                        track_map[data.track_number] = plane_track_data = PlaneTrackData(data.ICAO, data.track_number)
+                plane_track_data.add_data(data)
+
+        # data_list_048.extend(data_tmp)
+    
+    # 筛选掉最低高度超过3000m的
+    track_keys = [i for i in track_map.keys()]
+    for key in track_keys:
+        if track_map[key].min_FL() > 3000:
+            track_map.pop(key)
+
+    data_list = []
+    for data in track_map.values():
+        data_list.extend(data.track_data)
+    SecondaryRadar048.load_excel(data_list, 'test048.xlsx')
