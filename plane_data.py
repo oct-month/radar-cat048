@@ -1,10 +1,11 @@
-from typing import Any, Generator, List, Tuple, Dict
+from typing import Any, Generator, List, Tuple, Dict, Optional
 from datetime import datetime, time
 from openpyxl import Workbook
+import math
 import os
 
 # FILE_PATH = './DATASAMPLE.txt'
-FILE_DIR_PATH = './radar_data'
+FILE_DIR_PATH = './radardata'
 # CAT048UAP_PATH = './CAT048UAP.xlsx'
 
 
@@ -47,6 +48,18 @@ def trans_stap_to_time(stap: float) -> time:
 #         self.DataItemDescription = DataItemDescription
 #         self.Length = Length
 
+class Coordinate:
+    """坐标经纬度"""
+    def __init__(self, longitude: float, latitude: float) -> None:
+        self.longitude = longitude
+        self.latitude = latitude
+    
+    def __str__(self) -> str:
+        return f'({self.longitude}, {self.latitude})'
+
+# 雷达坐标
+RADAR_COOR = Coordinate(108.70702428342517,34.403288161891325)
+
 
 class SecondaryRadar:
     """二次雷达数据 基类"""
@@ -79,6 +92,7 @@ class SecondaryRadar:
         sec = float(sec_str)
         hour = int(sec // 3600)          # 时
         sec -= 3600 * hour
+        hour %= 24  # TODO 超过24h 处理
         minute = int(sec // 60)          # 分
         sec -= 60 * minute
         second = int(sec // 1)           # 秒
@@ -247,6 +261,15 @@ class SecondaryRadar048(SecondaryRadar):
         # if self.FSPEC[19+2-1] == '1':
         #     self.D3_height = self._read_bits(2) * 25 * 0.3 # 三维雷达测定的目标高度，使用平均海平面作为0基准面
     
+    def calculate_coor(self) -> Optional[Coordinate]:
+        """计算经纬度"""
+        if hasattr(self, 'polar_diameter') and hasattr(self, 'polar_angle'):
+            c = self.polar_diameter / 6371000 * 180 / math.pi
+            a = math.acos(math.cos(90 - RADAR_COOR.latitude) * math.cos(c) + math.sin(90 - RADAR_COOR.latitude) * math.sin(c) * math.cos(self.polar_angle))
+            t = math.asin(math.sin(c) * math.sin(self.polar_angle) / math.sin(a))
+            return Coordinate(RADAR_COOR.longitude + t, RADAR_COOR.latitude - a)
+        return None
+
     def dump_json(self) -> Dict[str, Any]:
         """获取对象的数据"""
         member = dir(self)
@@ -271,13 +294,15 @@ class SecondaryRadar048(SecondaryRadar):
             "polar track velocity": self.polar_track_velocity if 'polar_track_velocity' in member else None,
             "polar track heading": self.polar_track_heading if 'polar_track_heading' in member else None,
             # "3D height": self.D3_height if 'D3_height' in member else None,
+            "longitude": self.calculate_coor().longitude if self.calculate_coor() != None else None,
+            "latitude": self.calculate_coor().latitude if self.calculate_coor() != None else None,
         }
     
     @classmethod
     def load_excel(cls, datas: List['SecondaryRadar048'], path: str) -> None:
         """把结果写入文件"""
         heads = [
-            "recv_time",
+            # "recv_time",
             # "HDLC_address",
             # "HDLC_control",
             "CAT",
@@ -286,14 +311,16 @@ class SecondaryRadar048(SecondaryRadar):
             "SAC",
             "SIC",
             "Time-of-Day",
-            "polar diameter",
-            "polar angle",
+            # "polar diameter",
+            # "polar angle",
+            "longitude",
+            "latitude",
             "FL",
             "ICAO",
             "flight_num",
             "track number",
-            "position X",
-            "position Y",
+            # "position X",
+            # "position Y",
             "polar track velocity",
             "polar track heading",
         ]
@@ -414,9 +441,9 @@ class SecondaryRadar034(SecondaryRadar):
 
 class PlaneTrackData:
     """飞机的一条航迹数据"""
-    def __init__(self, ICAO: int, track_num: int) -> None:
+    def __init__(self, ICAO: int, flight_num: int) -> None:
         self.plane_ICAO = ICAO              # 飞机的ICAO码
-        self.track_num = track_num          # 航迹号
+        self.flight_num = flight_num          # 航班号
         self.track_data: List[SecondaryRadar048] = []   # 该航迹的所有数据
     
     def add_data(self, data: SecondaryRadar048) -> None:
@@ -428,11 +455,33 @@ class PlaneTrackData:
     
     def min_FL(self) -> float:
         """飞机的最低飞行高度"""
-        return min([i.FL for i in self.track_data if hasattr(i, 'FL')])
+        fl_list = [i.FL for i in self.track_data if hasattr(i, 'FL')] + [99999999]
+        return min(fl_list)
+    
+    def max_FL(self) -> float:
+        """飞机的最高飞行高度"""
+        fl_list = [i.FL for i in self.track_data if hasattr(i, 'FL')] + [-99999999]
+        return max(fl_list)
+    
+    def is_land(self) -> bool:
+        """飞机是否降落"""
+        start_fl = -1
+        end_fl = -1
+        for i in self.track_data:
+            if hasattr(i, 'FL'):
+                end_fl = i.FL
+                if start_fl == -1:
+                    start_fl = i.FL
+        if end_fl - start_fl < 0:
+            return True
+        else:
+            return False
+
 
 
 if __name__ == '__main__':
-    files = [os.path.join(FILE_DIR_PATH, i) for i in os.listdir(FILE_DIR_PATH)]
+    files = [os.path.join(FILE_DIR_PATH, i) for i in os.listdir(FILE_DIR_PATH) if not i.endswith('.xlsx')]
+    
     files.sort()
 
     track_map: Dict[int, PlaneTrackData] = {}
@@ -440,6 +489,7 @@ if __name__ == '__main__':
     # data_list_048: List[SecondaryRadar048] = []
     data_tmp: List[SecondaryRadar048] = []
     for file_path in files:
+        print(f"开始解析{file_path} -- {datetime.now().time()}")
         data_tmp.clear()
         track_map.clear()
 
@@ -451,24 +501,29 @@ if __name__ == '__main__':
                 data_tmp.append(a)
         # 归类
         for data in data_tmp:
-            if hasattr(data, 'track_number') and hasattr(data, 'ICAO'):
-                plane_track_data = track_map.get(data.track_number, None)
+            if hasattr(data, 'flight_num') and hasattr(data, 'ICAO'):
+                plane_track_data = track_map.get(data.flight_num, None)
                 if plane_track_data == None:
-                        track_map[data.track_number] = plane_track_data = PlaneTrackData(data.ICAO, data.track_number)
+                        track_map[data.flight_num] = plane_track_data = PlaneTrackData(data.ICAO, data.flight_num)
                 plane_track_data.add_data(data)
 
         # data_list_048.extend(data_tmp)
-    
+        
         # 筛选掉最低高度超过3000m的
         track_keys = [i for i in track_map.keys()]
         for key in track_keys:
-            if track_map[key].min_FL() > 3000:
+            if track_map[key].min_FL() > 2000:
                 track_map.pop(key)
 
-        data_list = []
+        data_list_take = []
+        data_list_land = []
         for data in track_map.values():
-            data_list.extend(data.track_data)
+            if data.is_land():
+                data_list_land.extend(data.track_data)
+            else:
+                data_list_take.extend(data.track_data)
         
-        file_name = os.path.splitext(file_path)[0] + '.xlsx'
-        SecondaryRadar048.load_excel(data_list, file_name)
-
+        file_name_take = os.path.splitext(file_path)[0] + '-take.xlsx'
+        file_name_land = os.path.splitext(file_path)[0] + '-land.xlsx'
+        SecondaryRadar048.load_excel(data_list_take, file_name_take)
+        SecondaryRadar048.load_excel(data_list_land, file_name_land)
