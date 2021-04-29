@@ -3,7 +3,7 @@ from datetime import datetime, time
 from openpyxl import Workbook
 import os
 
-FILE_PATH = './DATASAMPLE.txt'
+# FILE_PATH = './DATASAMPLE.txt'
 FILE_DIR_PATH = './radar_data'
 # CAT048UAP_PATH = './CAT048UAP.xlsx'
 
@@ -441,6 +441,8 @@ if __name__ == '__main__':
     data_tmp: List[SecondaryRadar048] = []
     for file_path in files:
         data_tmp.clear()
+        track_map.clear()
+
         # 读取
         for data in read_data(file_path):
             cat = SecondaryRadar.get_cat(data)
@@ -457,13 +459,16 @@ if __name__ == '__main__':
 
         # data_list_048.extend(data_tmp)
     
-    # 筛选掉最低高度超过3000m的
-    track_keys = [i for i in track_map.keys()]
-    for key in track_keys:
-        if track_map[key].min_FL() > 3000:
-            track_map.pop(key)
+        # 筛选掉最低高度超过3000m的
+        track_keys = [i for i in track_map.keys()]
+        for key in track_keys:
+            if track_map[key].min_FL() > 3000:
+                track_map.pop(key)
 
-    data_list = []
-    for data in track_map.values():
-        data_list.extend(data.track_data)
-    SecondaryRadar048.load_excel(data_list, 'test048.xlsx')
+        data_list = []
+        for data in track_map.values():
+            data_list.extend(data.track_data)
+        
+        file_name = os.path.splitext(file_path)[0] + '.xlsx'
+        SecondaryRadar048.load_excel(data_list, file_name)
+
